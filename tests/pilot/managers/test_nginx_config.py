@@ -216,14 +216,19 @@ def test_trusted_proxies_gate_peer_and_trust_xff(tmp_path: Path) -> None:
     assert "X-Forwarded-For    $http_x_forwarded_for" in config
     assert "$proxy_add_x_forwarded_for" not in config
     assert "X-Forwarded-Proto  $http_x_forwarded_proto" in config
-    assert "proxy_set_header   Origin $http_origin;" in config
+    assert "set $pilot_socketio_origin $http_origin;" in config
+    assert 'if ($pilot_socketio_origin = "") {' in config
+    assert "set $pilot_socketio_origin $http_x_forwarded_proto://$http_host;" in config
+    assert "proxy_set_header   Origin $pilot_socketio_origin;" in config
 
 
 def test_direct_site_builds_socketio_origin_from_local_scheme(tmp_path: Path) -> None:
     config = _site_config(tmp_path, _BASE_SITE, proxy_servers=[])
 
     assert "X-Forwarded-Proto  $scheme" in config
-    assert "proxy_set_header   Origin $scheme://$http_host;" in config
+    assert "set $pilot_socketio_origin $http_origin;" in config
+    assert "set $pilot_socketio_origin $scheme://$http_host;" in config
+    assert "proxy_set_header   Origin $pilot_socketio_origin;" in config
 
 
 # --- firewall ---------------------------------------------------------------

@@ -259,11 +259,14 @@ class NginxConfigRenderer:
             "proxy_servers": proxy_servers,
             "proxy_peers": "|".join(re.escape(ip) for ip in proxy_servers),
             # A configured edge proxy is the only TCP peer allowed by the
-            # generated vhost, so its original scheme and browser Origin are
-            # safe to preserve. Replacing either with this hop's $scheme turns
-            # externally-HTTPS requests into HTTP and breaks Socket.IO CORS.
+            # generated vhost, so its original scheme is safe to preserve.
+            # Same-origin polling GETs may omit Origin; the Socket.IO location
+            # uses this value to reconstruct one without hiding an explicitly
+            # supplied (and potentially invalid) browser Origin.
             "forwarded_proto": "$http_x_forwarded_proto" if proxy_servers else "$scheme",
-            "socketio_origin": "$http_origin" if proxy_servers else "$scheme://$http_host",
+            "socketio_origin_fallback": (
+                "$http_x_forwarded_proto://$http_host" if proxy_servers else "$scheme://$http_host"
+            ),
             "firewall": config.firewall,
             "waf_active": self._is_waf_active(),
             "waf_rules_file": self.bench.config_path / "modsecurity" / "main.conf",
