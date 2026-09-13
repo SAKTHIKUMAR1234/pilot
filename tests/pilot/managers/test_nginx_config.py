@@ -93,6 +93,18 @@ def test_canonical_redirect_with_explicit_primary(tmp_path: Path) -> None:
     assert "return 301 $scheme://www.example.com$request_uri;" in config
 
 
+def test_canonical_redirect_preserves_edge_proxy_scheme(tmp_path: Path) -> None:
+    site = SiteConfig(
+        name="site.localhost",
+        apps=["frappe"],
+        domains=["www.example.com"],
+        primary_domain="www.example.com",
+    )
+    config = _site_config(tmp_path, site, proxy_servers=["203.0.113.5"])
+
+    assert "return 301 $http_x_forwarded_proto://www.example.com$request_uri;" in config
+
+
 def test_proxy_headers_and_error_pages_present(tmp_path: Path) -> None:
     config = _site_config(tmp_path, _BASE_SITE)
 
@@ -203,6 +215,15 @@ def test_trusted_proxies_gate_peer_and_trust_xff(tmp_path: Path) -> None:
     assert r'if ($request_uri ~ "^/\.well-known/acme-challenge/") { set $bench_from_proxy 1; }' in config
     assert "X-Forwarded-For    $http_x_forwarded_for" in config
     assert "$proxy_add_x_forwarded_for" not in config
+    assert "X-Forwarded-Proto  $http_x_forwarded_proto" in config
+    assert "proxy_set_header   Origin $http_origin;" in config
+
+
+def test_direct_site_builds_socketio_origin_from_local_scheme(tmp_path: Path) -> None:
+    config = _site_config(tmp_path, _BASE_SITE, proxy_servers=[])
+
+    assert "X-Forwarded-Proto  $scheme" in config
+    assert "proxy_set_header   Origin $scheme://$http_host;" in config
 
 
 # --- firewall ---------------------------------------------------------------
@@ -290,7 +311,7 @@ def test_admin_proxy_port_under_supervisor(tmp_path: Path) -> None:
     data["production"]["process_manager"] = "supervisor"
     config = _renderer(tmp_path, data).generate_bench_config([], admin_ssl=False)
 
-    assert "proxy_pass         http://127.0.0.1:7000;" in config
+    assert "proxy_pass         http://127.0.0.1:7001;" in config
 
 
 def test_admin_ssl_redirects_http_to_https(tmp_path: Path) -> None:
