@@ -952,6 +952,17 @@ def test_proxy_protocol_applies_only_to_the_https_listener(tmp_path: Path) -> No
     assert "real_ip_header     X-Forwarded-For;" in config
 
 
+def test_proxy_protocol_uses_local_scheme_for_forwarding_and_socketio(tmp_path: Path) -> None:
+    site = _mixed_site()
+    renderer = _renderer(tmp_path, proxy_servers=["203.0.113.10"])
+    renderer.bench.config.proxy.protocol_v2 = True
+    config = renderer.generate_bench_config([(site, site.tls_domains)], admin_ssl=False)
+
+    assert "X-Forwarded-Proto  $scheme" in config
+    assert "set $pilot_socketio_origin $scheme://$http_host;" in config
+    assert "$http_x_forwarded_proto" not in config
+
+
 def test_without_proxy_protocol_the_https_listener_is_plain(tmp_path: Path) -> None:
     site = _mixed_site()
     config = _renderer(tmp_path, proxy_servers=["203.0.113.10"]).generate_bench_config(

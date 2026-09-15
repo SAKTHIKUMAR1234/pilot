@@ -244,6 +244,10 @@ class NginxConfigRenderer:
         config = self.bench.config
         nginx = config.nginx
         proxy_servers = self._proxy_servers
+        # Trust a forwarded scheme only when the edge terminates TLS.
+        forwarded_proto = (
+            "$http_x_forwarded_proto" if proxy_servers and not config.proxy.protocol_v2 else "$scheme"
+        )
         return {
             "upstream_name": config.name,
             "upstream_server": GunicornManager(self.bench).upstream_server,
@@ -258,15 +262,8 @@ class NginxConfigRenderer:
             "error_codes": list(ERROR_PAGES),
             "proxy_servers": proxy_servers,
             "proxy_peers": "|".join(re.escape(ip) for ip in proxy_servers),
-            # A configured edge proxy is the only TCP peer allowed by the
-            # generated vhost, so its original scheme is safe to preserve.
-            # Same-origin polling GETs may omit Origin; the Socket.IO location
-            # uses this value to reconstruct one without hiding an explicitly
-            # supplied (and potentially invalid) browser Origin.
-            "forwarded_proto": "$http_x_forwarded_proto" if proxy_servers else "$scheme",
-            "socketio_origin_fallback": (
-                "$http_x_forwarded_proto://$http_host" if proxy_servers else "$scheme://$http_host"
-            ),
+            "forwarded_proto": forwarded_proto,
+            "socketio_origin_fallback": f"{forwarded_proto}://$http_host",
             "firewall": config.firewall,
             "waf_active": self._is_waf_active(),
             "waf_rules_file": self.bench.config_path / "modsecurity" / "main.conf",
