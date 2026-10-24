@@ -19,7 +19,7 @@ class ProcessDefinition:
     log_file: Path
     env: dict = field(default_factory=dict)
     working_dir: Path | None = None  # was `cd {dir} &&`
-    stop_timeout: int | None = None  # graceful-stop seconds (redis=300)
+    stop_timeout: int | None = None  # graceful-stop seconds (redis=300, worker_pool=30)
     critical: bool = True  # dev runner stops the whole bench when this process exits
 
 
@@ -194,6 +194,8 @@ class ProcessDefinitionBuilder:
             log_file=self.bench.logs_path / "worker_pool.log",
             env=self.python_env(),
             working_dir=self.bench.sites_path,
+            # A stuck worker must not hold a restart for the 90 s systemd default.
+            stop_timeout=30,
         )
 
     def worker_definitions(self, queue: str, count: int) -> list[ProcessDefinition]:

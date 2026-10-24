@@ -157,8 +157,24 @@ class SystemdProcessManager(SystemdUserMixin, ManagedProcessManager):
             self._control_admin(action, env)
         elif role is UnitGroup.WEB:
             run_command(self._systemctl("restart", self._unit_name("web")), env=env)
+        elif action == "restart":
+            self.restart_workload_units()
         else:
             run_command(self._systemctl(action, self._target_name()), env=env)
+
+    def restart_workload_units(self, timeout: float | None = None) -> None:
+        """Restart web and socketio before the rest. In one transaction their After=redis
+        order holds them down until the slowest worker has stopped."""
+        env = self._systemctl_env()
+        names = [pd.name for pd in self._prod_process_definitions() if pd.name != "admin"]
+        front = [self._unit_name(name) for name in names if name in ("web", "socketio")]
+        rest = [self._unit_name(name) for name in names if name not in ("web", "socketio")]
+
+        run_command(self._systemctl("restart", *front), env=env, timeout=timeout)
+        if rest:
+            run_command(self._systemctl("restart", *rest), env=env, timeout=timeout)
+        # Unit restarts leave a stopped target inactive, which is_running reads.
+        run_command(self._systemctl("start", self._target_name()), env=env, timeout=timeout)
 
     @override
     def are_units_running(self, role: UnitGroup) -> bool:

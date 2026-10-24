@@ -306,29 +306,14 @@ def _restart_supervisor(manager, bench_name: str) -> bool:
 def _restart_systemd(manager) -> bool:
     if not manager.is_running():
         return False
-    env = manager._systemctl_env()
     subprocess.run(
         ["systemctl", "--user", "daemon-reload"],
         capture_output=True,
-        env=env,
+        env=manager._systemctl_env(),
         timeout=10,
         check=True,
     )
-    non_admin_units = [
-        manager._unit_name(process.name)
-        for process in manager._prod_process_definitions()
-        if process.name != "admin"
-    ]
-    if not non_admin_units:
-        return False
-    subprocess.run(
-        [*manager._systemctl(), "restart", *non_admin_units],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        env=env,
-        check=True,
-    )
+    manager.restart_workload_units(timeout=60)
     return True
 
 

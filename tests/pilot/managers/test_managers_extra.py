@@ -803,3 +803,61 @@ def test_supervisor_starts_again_after_a_reboot(tmp_path: Path, monkeypatch) -> 
 
     manager.shutdown()
     assert not any(line.startswith("@reboot") for line in crontab)
+
+
+def _systemd_workload_calls(tmp_path: Path, monkeypatch, action: str) -> list[list[str]]:
+    from pilot.managers.processes.base import UnitGroup
+    from pilot.managers.processes.local import ProcessDefinition
+
+    mgr = _make_systemd_manager(tmp_path)
+    names = ["web", "socketio", "admin", "worker_pool", "redis_cache", "redis_queue"]
+    defs = [ProcessDefinition(name, [name], tmp_path / f"{name}.log") for name in names]
+    calls: list[list[str]] = []
+    monkeypatch.setattr(mgr, "_prod_process_definitions", lambda: defs)
+    monkeypatch.setattr("pilot.managers.processes.systemd.run_command", lambda argv, **kwargs: calls.append(argv))
+
+    mgr.apply_unit_action(action, UnitGroup.WORKLOAD)
+    return [call[2:] for call in calls]
+
+
+def test_systemd_restart_brings_web_back_before_workers_drain(tmp_path: Path, monkeypatch) -> None:
+    """One transaction would hold web behind After=redis until the worker pool stops."""
+    calls = _systemd_workload_calls(tmp_path, monkeypatch, "restart")
+
+    assert calls == [
+        ["restart", "test-bench-web.service", "test-bench-socketio.service"],
+        [
+            "restart",
+            "test-bench-worker_pool.service",
+            "test-bench-redis_cache.service",
+            "test-bench-redis_queue.service",
+        ],
+        ["start", "test-bench.target"],
+    ]
+
+
+def test_systemd_start_and_stop_act_on_the_target(tmp_path: Path, monkeypatch) -> None:
+    assert _systemd_workload_calls(tmp_path, monkeypatch, "start") == [["start", "test-bench.target"]]
+    assert _systemd_workload_calls(tmp_path, monkeypatch, "stop") == [["stop", "test-bench.target"]]
+
+
+def test_systemd_worker_pool_unit_bounds_its_stop(tmp_path: Path) -> None:
+    from pilot.managers.processes.definitions import ProcessDefinitionBuilder
+    from pilot.managers.processes.systemd import SystemdRenderer
+
+    builder = ProcessDefinitionBuilder(make_bench(tmp_path), tmp_path / "python", watch_admin_js=False)
+    unit = SystemdRenderer("test-bench").render(builder.worker_pool_definition("default", 2))
+
+    assert "TimeoutStopSec=30" in unit
+
+
+def test_settings_restart_uses_the_ordered_systemd_restart(tmp_path: Path, monkeypatch) -> None:
+    from pilot.core.bench.settings import _restart_systemd
+
+    manager = MagicMock()
+    manager.is_running.return_value = True
+    manager._systemctl_env.return_value = {}
+    monkeypatch.setattr("pilot.core.bench.settings.subprocess.run", MagicMock())
+
+    assert _restart_systemd(manager) is True
+    manager.restart_workload_units.assert_called_once_with(timeout=60)
